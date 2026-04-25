@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "features": [
+    {
+      "id": "000-init-relay-patch",
+      "name": "Initial Relay Patch",
+      "status": "active",
+      "path": "features/000-init-relay-patch"
+    }
+  ]
+}
