@@ -370,19 +370,7 @@ export async function* query(
   // Parse NDJSON from stdout line by line
   let fullAssistantText = "";
   let conversationId = options?.conversationId ?? "";
-  let systemYielded = false;
   let finalResult: unknown = "";
-
-  // Helper: yield system init message (deferred until we know the real conversation_id)
-  function yieldSystemInit(): Generator<ForgeMessage, void, unknown> {
-    return (function* () {
-      yield {
-        type: "system",
-        subtype: "init",
-        session_id: conversationId || generateSessionId(),
-      } satisfies ForgeMessage;
-    })();
-  }
 
   try {
     const reader = proc.stdout.getReader();
@@ -407,14 +395,8 @@ export async function* query(
           const msg = JSON.parse(trimmed);
 
           // Track conversation_id from forge
-          if (msg.conversation_id && !conversationId) {
+          if (msg.conversation_id) {
             conversationId = msg.conversation_id;
-          }
-
-          // Yield deferred system init on first real message
-          if (!systemYielded) {
-            systemYielded = true;
-            yield* yieldSystemInit();
           }
 
           switch (msg.type) {
@@ -456,9 +438,18 @@ export async function* query(
 
             case "complete":
             case "result":
-              if (msg.conversation_id) {
-                conversationId = msg.conversation_id;
-              }
+              // Yield system init right before result (we now have conversation_id)
+              yield {
+                type: "system",
+                subtype: "init",
+                session_id: conversationId || generateSessionId(),
+              } satisfies ForgeMessage;
+              // Yield the result with accumulated text and session_id
+              yield {
+                type: "result",
+                result: fullAssistantText || String(finalResult),
+                session_id: conversationId || generateSessionId(),
+              } satisfies ForgeMessage;
               break;
 
             case "retry":
