@@ -371,6 +371,7 @@ export async function* query(
   let fullAssistantText = "";
   let conversationId = options?.conversationId ?? "";
   let finalResult: unknown = "";
+  let resultYielded = false;
 
   try {
     const reader = proc.stdout.getReader();
@@ -450,6 +451,7 @@ export async function* query(
                 result: fullAssistantText || String(finalResult),
                 session_id: conversationId || generateSessionId(),
               } satisfies ForgeMessage;
+              resultYielded = true;
               break;
 
             case "retry":
@@ -500,38 +502,18 @@ export async function* query(
     return;
   }
 
-  // Yield system init if no messages were received at all
-  if (!systemYielded) {
-    yield* yieldSystemInit();
+  // Fallback: if forge exited without a complete event, yield system + result
+  // with whatever we accumulated.
+  if (!resultYielded) {
+    yield {
+      type: "system",
+      subtype: "init",
+      session_id: conversationId || generateSessionId(),
+    } satisfies ForgeMessage;
+    yield {
+      type: "result",
+      result: fullAssistantText || "(no output)",
+      session_id: conversationId || generateSessionId(),
+    } satisfies ForgeMessage;
   }
-
-  // Process output format if specified (JSON schema validation)
-  finalResult = fullAssistantText;
-
-  if (options?.outputFormat?.type === "json_schema") {
-    const fmt = options.outputFormat as OutputFormatJsonSchema;
-    try {
-      const parsed = extractJsonFromText(fullAssistantText);
-      if (!matchesSchema(parsed, fmt.schema)) {
-        console.warn("[forgecode-sdk] Output JSON does not match the provided schema");
-      }
-      finalResult = parsed;
-    } catch (err) {
-      if (err instanceof ForgeOutputParseError) {
-        yield {
-          type: "error",
-          error: err.message,
-        };
-        return;
-      }
-      throw err;
-    }
-  }
-
-  // Yield the final result message
-  yield {
-    type: "result",
-    result: typeof finalResult === "string" ? finalResult : JSON.stringify(finalResult, null, 2),
-    session_id: conversationId || generateSessionId(),
-  };
 }
