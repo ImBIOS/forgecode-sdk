@@ -156,57 +156,6 @@ export function extractJsonFromText(text: string): unknown {
   throw new ForgeOutputParseError("No valid JSON found in output", trimmed);
 }
 
-/**
- * Simple recursive validation that a value loosely matches a JSON Schema.
- *
- * This is intentionally lightweight — it checks structural compatibility
- * (type matches, required properties present) rather than full schema
- * validation, which would require a library like ajv.
- */
-function matchesSchema(value: unknown, schema: Record<string, unknown>): boolean {
-  if (!schema.type) return true;
-
-  switch (schema.type) {
-    case "object": {
-      if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-      const obj = value as Record<string, unknown>;
-      const required = schema.required as string[] | undefined;
-      if (required) {
-        for (const key of required) {
-          if (!(key in obj)) return false;
-        }
-      }
-      const properties = schema.properties as Record<string, unknown> | undefined;
-      if (properties) {
-        for (const [key, propSchema] of Object.entries(properties)) {
-          if (key in obj && propSchema && typeof propSchema === "object") {
-            if (!matchesSchema(obj[key], propSchema as Record<string, unknown>)) return false;
-          }
-        }
-      }
-      return true;
-    }
-    case "array": {
-      if (!Array.isArray(value)) return false;
-      const items = schema.items as Record<string, unknown> | undefined;
-      if (items) {
-        return value.every((item) => matchesSchema(item, items));
-      }
-      return true;
-    }
-    case "string":
-      return typeof value === "string";
-    case "number":
-      return typeof value === "number";
-    case "boolean":
-      return typeof value === "boolean";
-    case "null":
-      return value === null;
-    default:
-      return true;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // UUID generation for synthetic session IDs
 // ---------------------------------------------------------------------------
