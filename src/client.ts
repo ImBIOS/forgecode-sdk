@@ -349,14 +349,6 @@ export async function* query(
     }
   }
 
-  // Yield synthetic system init message
-  const sessionId = options?.conversationId ?? generateSessionId();
-  yield {
-    type: "system",
-    subtype: "init",
-    session_id: sessionId,
-  };
-
   // Spawn the forge process
   const proc = Bun.spawn([forgePath, ...args], {
     env,
@@ -377,8 +369,20 @@ export async function* query(
 
   // Parse NDJSON from stdout line by line
   let fullAssistantText = "";
-  let finalConversationId = sessionId;
+  let conversationId = options?.conversationId ?? "";
+  let systemYielded = false;
   let finalResult: unknown = "";
+
+  // Helper: yield system init message (deferred until we know the real conversation_id)
+  function yieldSystemInit(): Generator<ForgeMessage, void, unknown> {
+    return (function* () {
+      yield {
+        type: "system",
+        subtype: "init",
+        session_id: conversationId || generateSessionId(),
+      } satisfies ForgeMessage;
+    })();
+  }
 
   try {
     const reader = proc.stdout.getReader();
@@ -401,6 +405,17 @@ export async function* query(
 
         try {
           const msg = JSON.parse(trimmed);
+
+          // Track conversation_id from forge
+          if (msg.conversation_id && !conversationId) {
+            conversationId = msg.conversation_id;
+          }
+
+          // Yield deferred system init on first real message
+          if (!systemYielded) {
+            systemYielded = true;
+            yield* yieldSystemInit();
+          }
 
           switch (msg.type) {
             case "assistant":
@@ -442,7 +457,7 @@ export async function* query(
             case "complete":
             case "result":
               if (msg.conversation_id) {
-                finalConversationId = msg.conversation_id;
+                conversationId = msg.conversation_id;
               }
               break;
 
@@ -468,7 +483,7 @@ export async function* query(
       try {
         const msg = JSON.parse(buffer.trim());
         if (msg.conversation_id) {
-          finalConversationId = msg.conversation_id;
+          conversationId = msg.conversation_id;
         }
       } catch {
         // ignore
@@ -492,6 +507,11 @@ export async function* query(
       exitCode,
     };
     return;
+  }
+
+  // Yield system init if no messages were received at all
+  if (!systemYielded) {
+    yield* yieldSystemInit();
   }
 
   // Process output format if specified (JSON schema validation)
@@ -521,6 +541,6 @@ export async function* query(
   yield {
     type: "result",
     result: typeof finalResult === "string" ? finalResult : JSON.stringify(finalResult, null, 2),
-    session_id: finalConversationId,
+    session_id: conversationId || generateSessionId(),
   };
 }
