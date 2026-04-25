@@ -16,7 +16,7 @@ import {
   ForgeBinaryNotFoundError,
   ForgeOutputParseError,
 } from "./types.ts";
-import { existsSync, accessSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Binary resolution
@@ -61,8 +61,9 @@ export function resolveForgePath(config?: ForgeConfig): string {
 
   // 4. Try which forge on PATH
   try {
-    const result = Bun.spawnSync("which", ["forge"]);
-    const resolved = new TextDecoder().decode(result.stdout).trim();
+    const result = Bun.spawnSync(["which", "forge"]);
+    const stdoutBuf = result.stdout;
+    const resolved = typeof stdoutBuf === "string" ? stdoutBuf.trim() : new TextDecoder().decode(stdoutBuf as Uint8Array).trim();
     if (resolved) return resolved;
   } catch {
     // continue
