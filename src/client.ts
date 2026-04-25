@@ -61,9 +61,12 @@ export function resolveForgePath(config?: ForgeConfig): string {
 
   // 4. Try which forge on PATH
   try {
-    const result = Bun.spawnSync(["which", "forge"]);
-    const stdoutBuf = result.stdout;
-    const resolved = typeof stdoutBuf === "string" ? stdoutBuf.trim() : new TextDecoder().decode(stdoutBuf as Uint8Array).trim();
+    const result = Bun.spawnSync(["which", "forge"], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const stdoutBuf = result.stdout as Uint8Array;
+    const resolved = new TextDecoder().decode(stdoutBuf).trim();
     if (resolved) return resolved;
   } catch {
     // continue
