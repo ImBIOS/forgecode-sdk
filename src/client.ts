@@ -10,12 +10,10 @@ import type {
   ForgeMessage,
   ForgeConfig,
   QueryParams,
-  QueryOptions,
   OutputFormatJsonSchema,
 } from "./types.ts";
 import {
   ForgeBinaryNotFoundError,
-  ForgeProcessError,
   ForgeOutputParseError,
 } from "./types.ts";
 
