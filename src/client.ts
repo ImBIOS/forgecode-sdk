@@ -16,14 +16,15 @@ import {
   ForgeBinaryNotFoundError,
   ForgeOutputParseError,
 } from "./types.ts";
+import { existsSync, accessSync, statSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Binary resolution
 // ---------------------------------------------------------------------------
 
 const DEFAULT_SEARCH_PATHS = [
-  "forge",
   `${process.env["HOME"] ?? "/root"}/.local/bin/forge`,
+  "forge",
 ];
 
 /**
@@ -32,12 +33,12 @@ const DEFAULT_SEARCH_PATHS = [
  * Search order:
  * 1. `FORGE_PATH` environment variable
  * 2. `config.forgePath` if provided
- * 3. `forge` on PATH (via `which`)
- * 4. `~/.local/bin/forge`
+ * 3. `~/.local/bin/forge`
+ * 4. `forge` on PATH (via `which`)
  *
  * @throws {ForgeBinaryNotFoundError} if no binary is found
  */
-export async function resolveForgePath(config?: ForgeConfig): Promise<string> {
+export function resolveForgePath(config?: ForgeConfig): string {
   // 1. FORGE_PATH env var
   const envPath = process.env["FORGE_PATH"];
   if (envPath) return envPath;
@@ -45,23 +46,26 @@ export async function resolveForgePath(config?: ForgeConfig): Promise<string> {
   // 2. Config path
   if (config?.forgePath) return config.forgePath;
 
-  // 3-4. Search default locations
-  for (const candidate of DEFAULT_SEARCH_PATHS) {
+  // 3. Check ~/.local/bin/forge directly
+  const localBin = `${process.env["HOME"] ?? "/root"}/.local/bin/forge`;
+  if (existsSync(localBin)) {
     try {
-      const proc = Bun.spawn(["which", candidate], {
-        stdout: "pipe",
-        stderr: "ignore",
-        stdin: "ignore",
-      });
-      const exitCode = await proc.exited;
-      if (exitCode === 0) {
-        const stdout = await collectStream(proc.stdout);
-        const resolved = new TextDecoder().decode(stdout).trim();
-        if (resolved) return resolved;
+      const stat = statSync(localBin);
+      if (stat.isFile() && (stat.mode & 0o111) !== 0) {
+        return localBin;
       }
     } catch {
-      // continue searching
+      // continue
     }
+  }
+
+  // 4. Try which forge on PATH
+  try {
+    const result = Bun.spawnSync("which", ["forge"]);
+    const resolved = new TextDecoder().decode(result.stdout).trim();
+    if (resolved) return resolved;
+  } catch {
+    // continue
   }
 
   throw new ForgeBinaryNotFoundError(DEFAULT_SEARCH_PATHS);
@@ -283,7 +287,7 @@ export async function* query(
   const { prompt, options } = params;
 
   // Resolve binary path
-  const forgePath = await resolveForgePath(config);
+  const forgePath = resolveForgePath(config);
 
   // Build environment
   const env: Record<string, string | undefined> = {
@@ -317,8 +321,8 @@ export async function* query(
     await importMcpServers(forgePath, options.mcpServers, env);
   }
 
-  // Build forge arguments
-  const args: string[] = ["-p", prompt];
+  // Build forge arguments — always use --output-format json for structured output
+  const args: string[] = ["-p", prompt, "--output-format", "json"];
 
   if (options?.agent) {
     args.push("--agent", options.agent);
@@ -335,7 +339,6 @@ export async function* query(
 
   // Prepend system prompt to the user prompt if provided
   if (options?.systemPrompt) {
-    // Replace the prompt argument to include the system prompt
     const promptIdx = args.indexOf("-p");
     if (promptIdx !== -1) {
       args[promptIdx + 1] = `${options.systemPrompt}\n\n${prompt}`;
@@ -359,17 +362,114 @@ export async function* query(
     cwd: options?.cwd ?? undefined,
   });
 
-  let stdoutText: string;
-  let stderrText: string;
+  // Read stderr for error reporting
+  let stderrText = "";
+  try {
+    const stderrBuf = await collectStream(proc.stderr);
+    stderrText = new TextDecoder().decode(stderrBuf);
+  } catch {
+    // ignore
+  }
+
+  // Parse NDJSON from stdout line by line
+  let fullAssistantText = "";
+  let finalConversationId = sessionId;
+  let finalResult: unknown = "";
 
   try {
-    const [stdoutBuf, stderrBuf] = await Promise.all([
-      collectStream(proc.stdout),
-      collectStream(proc.stderr),
-    ]);
+    const reader = proc.stdout.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-    stdoutText = new TextDecoder().decode(stdoutBuf);
-    stderrText = new TextDecoder().decode(stderrBuf);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete lines
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? ""; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("{")) continue;
+
+        try {
+          const msg = JSON.parse(trimmed);
+
+          switch (msg.type) {
+            case "assistant":
+              fullAssistantText += msg.content ?? "";
+              yield {
+                type: "assistant",
+                content: msg.content ?? "",
+              } satisfies ForgeMessage;
+              break;
+
+            case "reasoning":
+              // Reasoning is internal, don't yield but track
+              break;
+
+            case "tool_input":
+              yield {
+                type: "tool_use",
+                name: msg.title ?? "unknown",
+                arguments: {},
+              } satisfies ForgeMessage;
+              break;
+
+            case "tool_output":
+              // Tool output is informational
+              break;
+
+            case "tool_call_start":
+              yield {
+                type: "tool_use",
+                name: msg.name ?? "unknown",
+                arguments: {},
+              } satisfies ForgeMessage;
+              break;
+
+            case "tool_call_end":
+              // Tool end is informational
+              break;
+
+            case "complete":
+            case "result":
+              if (msg.conversation_id) {
+                finalConversationId = msg.conversation_id;
+              }
+              break;
+
+            case "retry":
+              // Retry is informational
+              break;
+
+            case "interrupt":
+              yield {
+                type: "error",
+                error: `Interrupted: ${msg.reason ?? "unknown"}`,
+              } satisfies ForgeMessage;
+              break;
+          }
+        } catch {
+          // Skip non-JSON lines (e.g., the "● [HH:MM:SS] Initialize ..." line)
+        }
+      }
+    }
+
+    // Process any remaining buffer
+    if (buffer.trim() && buffer.trim().startsWith("{")) {
+      try {
+        const msg = JSON.parse(buffer.trim());
+        if (msg.conversation_id) {
+          finalConversationId = msg.conversation_id;
+        }
+      } catch {
+        // ignore
+      }
+    }
   } catch (err) {
     proc.kill("SIGKILL");
     yield {
@@ -390,21 +490,13 @@ export async function* query(
     return;
   }
 
-  // Yield the raw text as an assistant message
-  if (stdoutText.trim()) {
-    yield {
-      type: "assistant",
-      content: stdoutText,
-    };
-  }
-
-  // Process output format if specified
-  let finalResult: unknown = stdoutText;
+  // Process output format if specified (JSON schema validation)
+  finalResult = fullAssistantText;
 
   if (options?.outputFormat?.type === "json_schema") {
     const fmt = options.outputFormat as OutputFormatJsonSchema;
     try {
-      const parsed = extractJsonFromText(stdoutText);
+      const parsed = extractJsonFromText(fullAssistantText);
       if (!matchesSchema(parsed, fmt.schema)) {
         console.warn("[forgecode-sdk] Output JSON does not match the provided schema");
       }
@@ -425,6 +517,6 @@ export async function* query(
   yield {
     type: "result",
     result: typeof finalResult === "string" ? finalResult : JSON.stringify(finalResult, null, 2),
-    session_id: sessionId,
+    session_id: finalConversationId,
   };
 }

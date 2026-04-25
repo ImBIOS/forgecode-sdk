@@ -106,64 +106,25 @@ export type OutputFormat = OutputFormatJsonSchema;
  * Mirrors the Claude Agent SDK options pattern with ForgeCode-specific fields.
  */
 export interface QueryOptions {
-  /**
-   * Agent ID to use for this session.
-   * Maps to `forge --agent <id>`.
-   */
+  /** Agent ID to use for this session. Maps to `forge --agent <id>`. */
   agent?: string;
-
-  /**
-   * Conversation ID to resume or continue.
-   * Maps to `forge --conversation-id <id>`.
-   */
+  /** Conversation ID to resume or continue. Maps to `forge --conversation-id <id>`. */
   conversationId?: string;
-
-  /**
-   * Name for an isolated git worktree sandbox.
-   * Maps to `forge --sandbox <name>`.
-   */
+  /** Name for an isolated git worktree sandbox. Maps to `forge --sandbox <name>`. */
   sandbox?: string;
-
-  /**
-   * Working directory for the forge process.
-   * Maps to `forge --directory <path>`.
-   */
+  /** Working directory for the forge process. Maps to `forge --directory <path>`. */
   cwd?: string;
-
-  /**
-   * Additional environment variables to pass to the forge process.
-   * These are merged with `process.env`.
-   */
+  /** Additional environment variables to pass to the forge process. */
   env?: Record<string, string | undefined>;
-
-  /**
-   * Output format specification.
-   * When provided, the SDK attempts to parse the final text as structured data.
-   */
+  /** Output format specification for structured JSON output. */
   outputFormat?: OutputFormat;
-
-  /**
-   * Reasoning effort level.
-   * Maps to `forge config set reasoning-effort <level>` (set before the run).
-   */
+  /** Reasoning effort level. Maps to `forge config set reasoning-effort <level>`. */
   reasoningEffort?: ReasoningEffort;
-
-  /**
-   * MCP server configurations to import before the run.
-   * Maps to `forge mcp import <json>` for each entry.
-   */
+  /** MCP server configurations to import before the run. */
   mcpServers?: Record<string, McpServerConfig>;
-
-  /**
-   * Tools the agent is allowed to use.
-   * Maps to ForgeCode's tool restriction mechanism.
-   */
+  /** Tools the agent is allowed to use. Maps to ForgeCode's tool restriction. */
   allowedTools?: string[];
-
-  /**
-   * System prompt to prepend to the user prompt.
-   * Injected before the prompt text.
-   */
+  /** System prompt to prepend to the user prompt. */
   systemPrompt?: string;
 }
 
@@ -189,33 +150,15 @@ export interface McpServerConfig {
  * Global SDK configuration.
  */
 export interface ForgeConfig {
-  /**
-   * Explicit path to the forge binary.
-   * When set, takes priority over PATH lookup and `FORGE_PATH`.
-   */
+  /** Explicit path to the forge binary. Takes priority over PATH lookup. */
   forgePath?: string;
-
-  /**
-   * Default OpenAI-compatible API base URL.
-   * Maps to the `OPENAI_URL` environment variable.
-   */
+  /** Default OpenAI-compatible API base URL. Maps to `OPENAI_URL` env var. */
   openaiUrl?: string;
-
-  /**
-   * Default OpenAI-compatible API key.
-   * Maps to the `OPENAI_API_KEY` environment variable.
-   */
+  /** Default OpenAI-compatible API key. Maps to `OPENAI_API_KEY` env var. */
   openaiApiKey?: string;
-
-  /**
-   * Default model to use.
-   * Maps to the `FORGE_MODEL` environment variable.
-   */
+  /** Default model to use. Maps to `FORGE_MODEL` env var. */
   model?: string;
-
-  /**
-   * Default reasoning effort level.
-   */
+  /** Default reasoning effort level. */
   reasoningEffort?: ReasoningEffort;
 }
 
@@ -237,9 +180,7 @@ export interface QueryParams {
 // Error types
 // ---------------------------------------------------------------------------
 
-/**
- * Error thrown when the forge binary cannot be found.
- */
+/** Error thrown when the forge binary cannot be found. */
 export class ForgeBinaryNotFoundError extends Error {
   constructor(searchedPaths: string[]) {
     super(
@@ -250,9 +191,7 @@ export class ForgeBinaryNotFoundError extends Error {
   }
 }
 
-/**
- * Error thrown when the forge process exits with a non-zero code.
- */
+/** Error thrown when the forge process exits with a non-zero code. */
 export class ForgeProcessError extends Error {
   readonly exitCode: number;
   readonly stderr: string;
@@ -265,9 +204,7 @@ export class ForgeProcessError extends Error {
   }
 }
 
-/**
- * Error thrown when output format parsing fails.
- */
+/** Error thrown when output format parsing fails. */
 export class ForgeOutputParseError extends Error {
   constructor(message: string, readonly rawOutput: string) {
     super(`Failed to parse forge output: ${message}`);
