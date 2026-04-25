@@ -438,8 +438,9 @@ export async function* query(
               break;
 
             case "complete":
-            case "result":
               // Yield system init right before result (we now have conversation_id)
+              // Note: forge also emits a "result" line after "complete" — we handle
+              // only "complete" to avoid yielding system+result twice.
               yield {
                 type: "system",
                 subtype: "init",
