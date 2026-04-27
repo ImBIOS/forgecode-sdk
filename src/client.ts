@@ -2,30 +2,30 @@
  * @module client
  * Core client implementation for the ForgeCode SDK.
  *
- * Spawns the `forge` binary via `Bun.spawn`, reads stdout/stderr,
+ * Spawns the `forge` binary via `Bun.spawn`, reads stdout,
  * and yields {@link ForgeMessage} objects through an async generator.
+ *
+ * The forge CLI outputs plain text with ANSI-prefixed status lines:
+ *   ● [HH:MM:SS] Initialize <uuid>
+ *   <assistant text (multi-line)>
+ *   ● [HH:MM:SS] Execute [/bin/zsh] <command>      (verbose mode only)
+ *   <tool output (verbose mode only)>
+ *   ● [HH:MM:SS] Finished <uuid>
+ *
+ * On error:
+ *   ● [HH:MM:SS] ERROR: <message>
  */
 
-import type {
-  ForgeMessage,
-  ForgeConfig,
-  QueryParams,
-
-} from "./types.ts";
-import {
-  ForgeBinaryNotFoundError,
-  ForgeOutputParseError,
-} from "./types.ts";
 import { existsSync, statSync } from "node:fs";
+import { z } from "zod";
+import type { ForgeConfig, ForgeMessage, QueryOptions, ResolveResultType } from "./types.ts";
+import { ForgeBinaryNotFoundError } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Binary resolution
 // ---------------------------------------------------------------------------
 
-const DEFAULT_SEARCH_PATHS = [
-  `${process.env["HOME"] ?? "/root"}/.local/bin/forge`,
-  "forge",
-];
+const DEFAULT_SEARCH_PATHS = [`${process.env["HOME"] ?? "/root"}/.local/bin/forge`, "forge"];
 
 /**
  * Resolve the path to the forge binary.
@@ -90,14 +90,6 @@ async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Uint8A
   return Buffer.concat(chunks);
 }
 
-/**
- * Read a stream as text.
- */
-async function streamToText(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const buf = await collectStream(stream);
-  return new TextDecoder().decode(buf);
-}
-
 // ---------------------------------------------------------------------------
 // JSON extraction from markdown
 // ---------------------------------------------------------------------------
@@ -153,7 +145,7 @@ export function extractJsonFromText(text: string): unknown {
     // fall through
   }
 
-  throw new ForgeOutputParseError("No valid JSON found in output", trimmed);
+  throw new Error(`No valid JSON found in output`);
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +157,48 @@ function generateSessionId(): string {
 }
 
 // ---------------------------------------------------------------------------
+// ANSI stripping
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip ANSI escape codes from a string.
+ * Matches CSI sequences (ESC [ ... m), OSC sequences, and other common escapes.
+ */
+const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()][0-9a-zA-Z]/g;
+
+function stripAnsi(str: string): string {
+  return str.replace(ANSI_RE, "");
+}
+
+// ---------------------------------------------------------------------------
+// Output line patterns
+// ---------------------------------------------------------------------------
+
+/**
+ * Regex for forge status lines (applied AFTER ANSI stripping):
+ *   ● [HH:MM:SS] Initialize <uuid>
+ *   ● [HH:MM:SS] Finished <uuid>
+ *   ● [HH:MM:SS] ERROR: <message>
+ *   ● [HH:MM:SS] Execute [/bin/zsh] <command>     (verbose)
+ */
+const STATUS_LINE_RE = /^●\s+\[\d{2}:\d{2}:\d{2}\]\s+(.+)$/;
+
+/**
+ * Extract session ID from an "Initialize <uuid>" status line.
+ */
+const INIT_LINE_RE = /^Initialize\s+([0-9a-f-]{36})$/;
+
+/**
+ * Extract error message from an "ERROR: <message>" status line.
+ */
+const ERROR_LINE_RE = /^ERROR:\s*(.+)$/;
+
+/**
+ * Extract tool info from an "Execute [/bin/zsh] <command>" status line.
+ */
+const EXECUTE_LINE_RE = /^Execute\s+\[([^\]]+)\]\s+(.+)$/;
+
+// ---------------------------------------------------------------------------
 // MCP server import helpers
 // ---------------------------------------------------------------------------
 
@@ -174,7 +208,15 @@ function generateSessionId(): string {
  */
 async function importMcpServers(
   forgePath: string,
-  servers: Record<string, { command: string; args?: string[]; transport?: string; env?: Record<string, string | undefined> }>,
+  servers: Record<
+    string,
+    {
+      command: string;
+      args?: string[];
+      transport?: string;
+      env?: Record<string, string | undefined>;
+    }
+  >,
   env: Record<string, string | undefined>,
 ): Promise<void> {
   for (const [name, serverConfig] of Object.entries(servers)) {
@@ -186,20 +228,20 @@ async function importMcpServers(
       env: serverConfig.env ?? {},
     });
 
-    const proc = Bun.spawn(
-      [forgePath, "mcp", "import", importPayload, "--scope", "local"],
-      {
-        env,
-        stdout: "pipe",
-        stderr: "pipe",
-        stdin: "ignore",
-      },
-    );
+    const proc = Bun.spawn([forgePath, "mcp", "import", importPayload, "--scope", "local"], {
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+    });
 
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
-      const stderr = await streamToText(proc.stderr);
-      console.warn(`[forgecode-sdk] MCP import for "${name}" failed (exit ${exitCode}): ${stderr.slice(0, 200)}`);
+      const stderr = await collectStream(proc.stderr);
+      const stderrText = new TextDecoder().decode(stderr);
+      console.warn(
+        `[forgecode-sdk] MCP import for "${name}" failed (exit ${exitCode}): ${stderrText.slice(0, 200)}`,
+      );
     }
   }
 }
@@ -213,7 +255,7 @@ async function importMcpServers(
  *
  * This is the primary SDK function, mirroring the Claude Agent SDK's
  * `query()` pattern. It spawns the `forge` binary in one-shot mode,
- * collects its output, and yields typed messages.
+ * collects its plain-text output, and yields typed messages.
  *
  * @example
  * ```ts
@@ -233,10 +275,10 @@ async function importMcpServers(
  * @param config - Optional global SDK configuration
  * @yields {@link ForgeMessage} objects as the agent processes the prompt
  */
-export async function* query(
-  params: QueryParams,
+export async function* query<O extends QueryOptions = QueryOptions>(
+  params: { prompt: string; options?: O },
   config?: ForgeConfig,
-): AsyncGenerator<ForgeMessage> {
+): AsyncGenerator<ForgeMessage<ResolveResultType<O>>> {
   const { prompt, options } = params;
 
   // Resolve binary path
@@ -258,14 +300,20 @@ export async function* query(
   if (config?.model) {
     env["FORGE_MODEL"] = config.model;
   }
+  // Option-level model takes precedence over config
+  if (options?.model) {
+    env["FORGE_MODEL"] = options.model;
+  }
 
   // Set reasoning effort if configured
   const effort = options?.reasoningEffort ?? config?.reasoningEffort;
   if (effort) {
-    const setProc = Bun.spawn(
-      [forgePath, "config", "set", "reasoning-effort", effort],
-      { env, stdout: "pipe", stderr: "pipe", stdin: "ignore" },
-    );
+    const setProc = Bun.spawn([forgePath, "config", "set", "reasoning-effort", effort], {
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+    });
     await setProc.exited;
   }
 
@@ -274,8 +322,8 @@ export async function* query(
     await importMcpServers(forgePath, options.mcpServers, env);
   }
 
-  // Build forge arguments — always use --output-format json for structured output
-  const args: string[] = ["-p", prompt, "--output-format", "json"];
+  // Build forge arguments
+  const args: string[] = ["-p", prompt];
 
   if (options?.agent) {
     args.push("--agent", options.agent);
@@ -288,6 +336,24 @@ export async function* query(
   }
   if (options?.cwd) {
     args.push("--directory", options.cwd);
+  }
+  if (options?.maxTurns != null) {
+    args.push("--max-turns", String(options.maxTurns));
+  }
+  if (options?.disallowedTools?.length) {
+    args.push("--disallowed-tools", options.disallowedTools.join(","));
+  }
+  if (options?.tools?.length) {
+    args.push("--tools", options.tools.join(","));
+  }
+  if (options?.continue) {
+    args.push("--continue");
+  }
+  if (options?.resume) {
+    args.push("--resume", options.resume);
+  }
+  if (options?.title) {
+    args.push("--title", options.title);
   }
 
   // Prepend system prompt to the user prompt if provided
@@ -307,20 +373,64 @@ export async function* query(
     cwd: options?.cwd ?? undefined,
   });
 
-  // Read stderr for error reporting
-  let stderrText = "";
-  try {
-    const stderrBuf = await collectStream(proc.stderr);
-    stderrText = new TextDecoder().decode(stderrBuf);
-  } catch {
-    // ignore
+  // Set up abort controller listener
+  let aborted = false;
+  if (options?.abortController) {
+    const { signal } = options.abortController;
+    if (signal.aborted) {
+      proc.kill("SIGKILL");
+      yield {
+        type: "error",
+        error: "Query was aborted before process started",
+      } satisfies ForgeMessage;
+      return;
+    }
+    signal.addEventListener(
+      "abort",
+      () => {
+        aborted = true;
+        proc.kill("SIGKILL");
+      },
+      { once: true },
+    );
   }
 
-  // Parse NDJSON from stdout line by line
-  let fullAssistantText = "";
-  let conversationId = options?.conversationId ?? "";
-  let finalResult: unknown = "";
-  let resultYielded = false;
+  // Read stderr concurrently — forge writes ERROR status lines to stderr
+  // If a stderr callback is provided, stream data to it as it arrives
+  let stderrCollected = "";
+  let stderrPromise: Promise<string>;
+
+  if (options?.stderr) {
+    stderrPromise = (async () => {
+      try {
+        const reader = proc.stderr.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          options.stderr!(buffer);
+          stderrCollected = buffer;
+          buffer = "";
+        }
+        return stderrCollected;
+      } catch {
+        return stderrCollected;
+      }
+    })();
+  } else {
+    stderrPromise = collectStream(proc.stderr)
+      .then((buf) => new TextDecoder().decode(buf))
+      .catch(() => "");
+  }
+
+  // Parse plain-text output from stdout
+  let sessionId = "";
+  let assistantText = "";
+  let hasError = false;
+  let errorMessage = "";
+  let systemYielded = false;
 
   try {
     const reader = proc.stdout.getReader();
@@ -328,6 +438,14 @@ export async function* query(
     let buffer = "";
 
     while (true) {
+      // Check if aborted while waiting for next chunk
+      if (aborted) {
+        yield {
+          type: "error",
+          error: "Query was aborted",
+        } satisfies ForgeMessage;
+        return;
+      }
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -338,102 +456,81 @@ export async function* query(
       buffer = lines.pop() ?? ""; // Keep incomplete line in buffer
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith("{")) continue;
+        const raw = line.trimEnd();
+        const stripped = stripAnsi(raw);
 
-        try {
-          const msg = JSON.parse(trimmed);
+        // Check for status lines (on ANSI-stripped content)
+        const statusMatch = stripped.match(STATUS_LINE_RE);
+        if (statusMatch?.[1]) {
+          const statusContent = statusMatch[1];
 
-          // Track conversation_id from forge
-          if (msg.conversation_id) {
-            conversationId = msg.conversation_id;
+          // Initialize line — extract session ID
+          const initMatch = statusContent.match(INIT_LINE_RE);
+          if (initMatch?.[1]) {
+            sessionId = initMatch[1];
+            yield {
+              type: "system",
+              subtype: "init",
+              session_id: sessionId,
+            } satisfies ForgeMessage;
+            systemYielded = true;
+            continue;
           }
 
-          switch (msg.type) {
-            case "assistant":
-              fullAssistantText += msg.content ?? "";
-              yield {
-                type: "assistant",
-                content: msg.content ?? "",
-              } satisfies ForgeMessage;
-              break;
-
-            case "reasoning":
-              // Reasoning is internal, don't yield but track
-              break;
-
-            case "tool_input":
-              yield {
-                type: "tool_use",
-                name: msg.title ?? "unknown",
-                arguments: {},
-              } satisfies ForgeMessage;
-              break;
-
-            case "tool_output":
-              // Tool output is informational
-              break;
-
-            case "tool_call_start":
-              yield {
-                type: "tool_use",
-                name: msg.name ?? "unknown",
-                arguments: {},
-              } satisfies ForgeMessage;
-              break;
-
-            case "tool_call_end":
-              // Tool end is informational
-              break;
-
-            case "complete":
-              // Yield system init right before result (we now have conversation_id)
-              // Note: forge also emits a "result" line after "complete" — we handle
-              // only "complete" to avoid yielding system+result twice.
-              yield {
-                type: "system",
-                subtype: "init",
-                session_id: conversationId || generateSessionId(),
-              } satisfies ForgeMessage;
-              // Yield the result with accumulated text and session_id
-              yield {
-                type: "result",
-                result: fullAssistantText || String(finalResult),
-                session_id: conversationId || generateSessionId(),
-              } satisfies ForgeMessage;
-              resultYielded = true;
-              break;
-
-            case "retry":
-              // Retry is informational
-              break;
-
-            case "interrupt":
-              yield {
-                type: "error",
-                error: `Interrupted: ${msg.reason ?? "unknown"}`,
-              } satisfies ForgeMessage;
-              break;
+          // Error line
+          const errorMatch = statusContent.match(ERROR_LINE_RE);
+          if (errorMatch?.[1]) {
+            hasError = true;
+            errorMessage = errorMatch[1];
+            yield {
+              type: "error",
+              error: errorMessage,
+            } satisfies ForgeMessage;
+            continue;
           }
-        } catch {
-          // Skip non-JSON lines (e.g., the "● [HH:MM:SS] Initialize ..." line)
+
+          // Tool execution line (verbose mode) — yield as tool_use
+          const execMatch = statusContent.match(EXECUTE_LINE_RE);
+          if (execMatch?.[1] && execMatch?.[2]) {
+            yield {
+              type: "tool_use",
+              name: execMatch[1], // shell path
+              arguments: { command: execMatch[2] },
+            } satisfies ForgeMessage;
+            continue;
+          }
+
+          // Finished line — we'll handle result after the loop
+          continue;
+        }
+
+        // Non-status line: this is assistant output content
+        // Use ANSI-stripped version for clean content
+        if (stripped.length > 0) {
+          assistantText += (assistantText ? "\n" : "") + stripped;
+          // Yield assistant messages as they stream
+          yield {
+            type: "assistant",
+            content: stripped,
+          } satisfies ForgeMessage;
         }
       }
     }
 
-    // Process any remaining buffer
-    if (buffer.trim() && buffer.trim().startsWith("{")) {
-      try {
-        const msg = JSON.parse(buffer.trim());
-        if (msg.conversation_id) {
-          conversationId = msg.conversation_id;
-        }
-      } catch {
-        // ignore
-      }
+    // Process any remaining buffer content
+    const remainingStripped = stripAnsi(buffer.trim());
+    if (remainingStripped.length > 0) {
+      assistantText += (assistantText ? "\n" : "") + remainingStripped;
     }
   } catch (err) {
     proc.kill("SIGKILL");
+    if (aborted) {
+      yield {
+        type: "error",
+        error: "Query was aborted",
+      } satisfies ForgeMessage;
+      return;
+    }
     yield {
       type: "error",
       error: `Failed to read forge output: ${err instanceof Error ? err.message : String(err)}`,
@@ -443,7 +540,31 @@ export async function* query(
 
   const exitCode = await proc.exited;
 
-  if (exitCode !== 0) {
+  // Resolve stderr text (already being read concurrently)
+  const stderrText = await stderrPromise;
+
+  // Check stderr for ERROR status lines that forge writes there
+  if (!hasError && stderrText.trim()) {
+    for (const line of stderrText.split("\n")) {
+      const stripped = stripAnsi(line.trim());
+      const statusMatch = stripped.match(STATUS_LINE_RE);
+      if (statusMatch?.[1]) {
+        const errorMatch = statusMatch[1].match(ERROR_LINE_RE);
+        if (errorMatch?.[1]) {
+          hasError = true;
+          errorMessage = errorMatch[1];
+          yield {
+            type: "error",
+            error: errorMessage,
+          } satisfies ForgeMessage;
+          break;
+        }
+      }
+    }
+  }
+
+  // Handle non-zero exit codes (that weren't already caught as ERROR status lines)
+  if (exitCode !== 0 && !hasError) {
     yield {
       type: "error",
       error: stderrText.trim() || `Forge process exited with code ${exitCode}`,
@@ -452,18 +573,61 @@ export async function* query(
     return;
   }
 
-  // Fallback: if forge exited without a complete event, yield system + result
-  // with whatever we accumulated.
-  if (!resultYielded) {
+  // Yield system init if forge didn't emit one (e.g., immediate error)
+  if (!systemYielded) {
     yield {
       type: "system",
       subtype: "init",
-      session_id: conversationId || generateSessionId(),
-    } satisfies ForgeMessage;
-    yield {
-      type: "result",
-      result: fullAssistantText || "(no output)",
-      session_id: conversationId || generateSessionId(),
+      session_id: sessionId || generateSessionId(),
     } satisfies ForgeMessage;
   }
+
+  // Determine the final result text
+  let resultText = assistantText || "(no output)";
+
+  // Wire outputFormat: attempt JSON extraction + optional zod validation when json_schema is requested
+  if (options?.outputFormat?.type === "json_schema") {
+    try {
+      const extracted = extractJsonFromText(resultText);
+      const jsonValue = typeof extracted === "string" ? JSON.parse(extracted) : extracted;
+
+      // Validate with Zod and yield the typed result
+      if (options.outputFormat.z instanceof z.ZodType) {
+        const verbose = options.outputFormat.verboseErrors ?? false;
+        try {
+          const validated = (options.outputFormat.z as z.ZodType).parse(jsonValue);
+          // Yield the validated object so consumers get a typed value
+          yield {
+            type: "result",
+            result: validated as ResolveResultType<O>,
+            session_id: sessionId || generateSessionId(),
+          } satisfies ForgeMessage<ResolveResultType<O>>;
+          return;
+        } catch (err) {
+          if (err instanceof z.ZodError) {
+            const issueDetail = verbose ? `: ${JSON.stringify(err.issues)}` : "";
+            throw new Error(`JSON output failed schema validation${issueDetail}`);
+          }
+          throw err;
+        }
+      } else {
+        // No z — yield the parsed JSON object directly (typed as string)
+        yield {
+          type: "result",
+          result: jsonValue as ResolveResultType<O>,
+          session_id: sessionId || generateSessionId(),
+        } satisfies ForgeMessage<ResolveResultType<O>>;
+        return;
+      }
+    } catch {
+      // Extraction or validation failed — return raw text as-is
+    }
+  }
+
+  // Always yield a result with the accumulated assistant text (plain string, no JSON)
+  yield {
+    type: "result",
+    result: resultText as ResolveResultType<O>,
+    session_id: sessionId || generateSessionId(),
+  } satisfies ForgeMessage<ResolveResultType<O>>;
 }

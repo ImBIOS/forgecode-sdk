@@ -9,6 +9,39 @@
  * - ToolUseMessage: tool calls made by the agent
  * - ErrorMessage: errors encountered during execution
  */
+import { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// Schema inference utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the inferred type from a Zod schema.
+ *
+ * Usage:
+ * ```ts
+ * type MyType = InferResult<typeof mySchema>;  // { name: string; age: number }
+ * ```
+ */
+export type InferResult<S> = S extends z.ZodType<infer T> ? T : never;
+
+/**
+ * Resolve the result type from `QueryOptions`.
+ *
+ * If `outputFormat.z` is a `ZodType<T>`, returns `T` so the
+ * `ResultMessage.result` field is typed correctly without any manual generics.
+ *
+ * ```ts
+ * const schema = z.object({ name: z.string() });
+ * type T = ResolveResultType<{ outputFormat: { z: schema } }>;
+ * // T = { name: string }
+ * ```
+ */
+export type ResolveResultType<O> = O extends { outputFormat: { z: infer S } }
+  ? S extends z.ZodType<infer T>
+    ? T
+    : string
+  : string;
 
 // ---------------------------------------------------------------------------
 // Message types
@@ -31,10 +64,17 @@ export interface AssistantMessage {
 }
 
 /** Final result message emitted when the agent finishes. */
-export interface ResultMessage {
+export interface ResultMessage<T = string> {
   type: "result";
-  /** The full text output of the run. */
-  result: string;
+  /**
+   * The output of the run.
+   *
+   * - `string` when no structured output was requested.
+   * - `T` when `outputFormat.z` is a `ZodType<T>` — fully typed and validated.
+   *
+   * Consumers should narrow on the shape rather than assuming a type.
+   */
+  result: T;
   /** Unique session / conversation ID. */
   session_id: string;
   /** Token usage information (when available). */
@@ -65,37 +105,51 @@ export interface ErrorMessage {
 /**
  * Union of all message types yielded by {@link query}.
  */
-export type ForgeMessage =
+export type ForgeMessage<T = string> =
   | SystemMessage
   | AssistantMessage
-  | ResultMessage
   | ToolUseMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | ResultMessage<T>;
 
 // ---------------------------------------------------------------------------
 // Query options
 // ---------------------------------------------------------------------------
 
 /** Reasoning effort levels supported by ForgeCode. */
-export type ReasoningEffort =
-  | "none"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh"
-  | "max";
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Output format options.
  *
- * When `type` is `"json_schema"`, the SDK will attempt to parse the final
- * text output as JSON that conforms to the provided `schema`.
+ * When `type` is `"json_schema"`, the SDK will:
+ * 1. Auto-derive a JSON Schema from `z` via `z.toJSONSchema(z)` and inject it
+ *    into a system prompt so the agent knows the expected structure
+ * 2. After the process completes, extract JSON from the final result text
+ * 3. If `z` is a `ZodType`, validate the extracted JSON with `z.parse()` —
+ *    throws a clear error with Zod issues on failure
+ * 4. Yield `message.result` as the validated typed object (no JSON.parse needed)
  */
 export interface OutputFormatJsonSchema {
   type: "json_schema";
-  /** A JSON Schema object describing the expected output structure. */
-  schema: Record<string, unknown>;
+  /**
+   * Zod schema for strict runtime validation and type inference.
+   * The JSON Schema shown to the agent is auto-derived via `z.toJSONSchema(z)`.
+   *
+   * @example
+   * ```ts
+   * outputFormat: {
+   *   type: "json_schema",
+   *   z: z.object({ name: z.string(), age: z.number() }),
+   * }
+   * ```
+   */
+  z: unknown;
+  /**
+   * When `true`, include Zod `issues` in the error message on validation failure.
+   * @default false
+   */
+  verboseErrors?: boolean;
 }
 
 export type OutputFormat = OutputFormatJsonSchema;
@@ -126,6 +180,24 @@ export interface QueryOptions {
   allowedTools?: string[];
   /** System prompt to prepend to the user prompt. */
   systemPrompt?: string;
+  /** AbortController for cancelling the query. */
+  abortController?: AbortController;
+  /** Claude model to use. Maps to FORGE_MODEL env var. */
+  model?: string;
+  /** Maximum number of conversation turns before stopping. */
+  maxTurns?: number;
+  /** List of tool names that are disallowed. */
+  disallowedTools?: string[];
+  /** Specify available built-in tools. Empty array = disable all. */
+  tools?: string[];
+  /** Continue the most recent conversation. */
+  continue?: boolean;
+  /** Session ID to resume. */
+  resume?: string;
+  /** Callback for stderr output from the forge process. */
+  stderr?: (data: string) => void;
+  /** Custom title for the session. */
+  title?: string;
 }
 
 /**
@@ -169,11 +241,11 @@ export interface ForgeConfig {
 /**
  * Parameters for the {@link query} function.
  */
-export interface QueryParams {
+export interface QueryParams<O extends QueryOptions = QueryOptions> {
   /** The prompt text to send to the agent. */
   prompt: string;
   /** Optional query configuration. */
-  options?: QueryOptions;
+  options?: O;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,8 +278,19 @@ export class ForgeProcessError extends Error {
 
 /** Error thrown when output format parsing fails. */
 export class ForgeOutputParseError extends Error {
-  constructor(message: string, readonly rawOutput: string) {
+  constructor(
+    message: string,
+    readonly rawOutput: string,
+  ) {
     super(`Failed to parse forge output: ${message}`);
     this.name = "ForgeOutputParseError";
+  }
+}
+
+/** Error thrown when a query is aborted via AbortController. */
+export class ForgeAbortError extends Error {
+  constructor() {
+    super("Query was aborted");
+    this.name = "ForgeAbortError";
   }
 }
