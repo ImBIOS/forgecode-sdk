@@ -61,8 +61,5 @@ export {
   ForgeAbortError,
 } from "./types.ts";
 
-// Re-export zod for consumers who want strict validation
-export { z } from "zod";
-
 // Re-export query and helpers from client
 export { query, resolveForgePath, extractJsonFromText } from "./client.ts";
