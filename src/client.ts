@@ -127,14 +127,29 @@ export function extractJsonFromText(text: string): unknown {
     }
   }
 
-  // Strategy 3: first { ... last }
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    try {
-      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
-    } catch {
-      // fall through
+  // Strategy 3: Try each `{` ... `}` pair (handles multiple JSON objects in text)
+  // Iterate from each `{` and try to find the matching `}` by parsing forward.
+  {
+    const bracePositions: number[] = [];
+    for (let i = 0; i < trimmed.length; i++) {
+      if (trimmed[i] === "{") bracePositions.push(i);
+    }
+    // Try from the last `{` first (most likely to be the final clean JSON)
+    for (let bi = bracePositions.length - 1; bi >= 0; bi--) {
+      const start = bracePositions[bi]!;
+      // Find the matching closing brace by tracking nesting depth
+      let depth = 0;
+      for (let i = start; i < trimmed.length; i++) {
+        if (trimmed[i] === "{") depth++;
+        else if (trimmed[i] === "}") depth--;
+        if (depth === 0) {
+          try {
+            return JSON.parse(trimmed.slice(start, i + 1));
+          } catch {
+            break; // This `{` doesn't start valid JSON, try the next one
+          }
+        }
+      }
     }
   }
 
@@ -336,24 +351,6 @@ export async function* query<O extends QueryOptions = QueryOptions>(
   }
   if (options?.cwd) {
     args.push("--directory", options.cwd);
-  }
-  if (options?.maxTurns != null) {
-    args.push("--max-turns", String(options.maxTurns));
-  }
-  if (options?.disallowedTools?.length) {
-    args.push("--disallowed-tools", options.disallowedTools.join(","));
-  }
-  if (options?.tools?.length) {
-    args.push("--tools", options.tools.join(","));
-  }
-  if (options?.continue) {
-    args.push("--continue");
-  }
-  if (options?.resume) {
-    args.push("--resume", options.resume);
-  }
-  if (options?.title) {
-    args.push("--title", options.title);
   }
 
   // Prepend system prompt to the user prompt if provided

@@ -1,8 +1,20 @@
 {
   "name": "@imbios/forgecode-sdk",
-  "version": "0.1.0",
-  "private": true,
   "description": "TypeScript SDK for the ForgeCode CLI (forge binary)",
+  "version": "0.1.0",
+  "dependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.12",
+    "typescript": "^6.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
   "keywords": [
     "agent",
     "ai",
@@ -11,28 +23,16 @@
     "forgecode",
     "sdk"
   ],
-  "type": "module",
   "main": "src/index.ts",
-  "types": "src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
+  "peerDependencies": {
+    "bun": ">=1.0.0"
   },
+  "private": true,
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json"
   },
-  "dependencies": {
-    "zod": "^4.0.0"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.3.12",
-    "typescript": "^6.0.0"
-  },
-  "peerDependencies": {
-    "bun": ">=1.0.0"
-  }
+  "type": "module",
+  "types": "src/index.ts"
 }
