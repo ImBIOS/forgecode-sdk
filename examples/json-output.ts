@@ -8,7 +8,8 @@
  *
  * Run: bun run examples/json-output.ts
  */
-import { query, z } from "../src";
+import z from "zod";
+import { query } from "../src";
 
 // Define the shape you expect — Zod gives runtime validation + type inference
 const mathSchema = z.object({
