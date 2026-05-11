@@ -116,6 +116,7 @@ Both SDK packages are consumed by the parent `alsafa` workspace:
 ## Development
 
 **TypeScript:**
+
 ```bash
 cd sdks/typescript
 bun install
@@ -124,6 +125,7 @@ bun run examples/basic-query.ts
 ```
 
 **Python:**
+
 ```bash
 cd sdks/python
 uv sync --group dev
