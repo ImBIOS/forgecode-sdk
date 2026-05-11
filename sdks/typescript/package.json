@@ -1,6 +1,6 @@
 {
   "name": "@imbios/forgecode-sdk",
-  "description": "TypeScript SDK for the ForgeCode CLI (forge binary)",
+  "description": "Official TypeScript SDK for integrating with ForgeCode AI agent CLI. Provides async-generator streaming API, session management, MCP server integration, and Zod schema validation for AI-powered applications.",
   "version": "0.1.0",
   "dependencies": {
     "zod": "^4.0.0"
@@ -16,12 +16,22 @@
     }
   },
   "keywords": [
-    "agent",
-    "ai",
-    "cli",
-    "forge",
+    "ai-agent",
+    "ai-sdk",
+    "anthropic-claude",
+    "async-generator",
+    "claude-agent",
+    "cli-automation",
+    "code-automation",
+    "developer-tools",
     "forgecode",
-    "sdk"
+    "llm-integration",
+    "mcp-client",
+    "mcp-sdk",
+    "model-context-protocol",
+    "openai-alternative",
+    "streaming-api",
+    "typescript-sdk"
   ],
   "main": "src/index.ts",
   "peerDependencies": {

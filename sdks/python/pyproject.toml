@@ -5,9 +5,27 @@ build-backend = "hatchling.build"
 [project]
 name = "forgecode-sdk"
 version = "0.1.0"
-description = "Python SDK for the ForgeCode CLI (forge binary)"
+description = "Official Python SDK for integrating with ForgeCode AI agent CLI. Provides async-generator streaming API, session management, MCP server integration, and Pydantic model validation for AI-powered applications."
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.0,<3"]
+keywords = [
+    "ai-agent",
+    "ai-sdk",
+    "anthropic-claude",
+    "async-generator",
+    "claude-agent",
+    "cli-automation",
+    "code-automation",
+    "developer-tools",
+    "forgecode",
+    "llm-integration",
+    "mcp-client",
+    "mcp-sdk",
+    "model-context-protocol",
+    "openai-alternative",
+    "python-sdk",
+    "streaming-api"
+]
 
 [dependency-groups]
 dev = [

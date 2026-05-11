@@ -1,22 +1,31 @@
-# forgecode-sdk (Python)
+# forgecode-sdk — Python SDK for ForgeCode AI Agent CLI
 
-Python SDK for the [ForgeCode](https://github.com/tailcallhq/forgecode) CLI (`forge` binary). Wraps the `forge` CLI with a programmatic async-generator API that follows the Claude Agent SDK pattern.
+> Integrate AI agent capabilities into your Python applications with async-generator streaming, Pydantic validation, and MCP server support.
 
-Requires Python >= 3.11.
+[![PyPI version](https://img.shields.io/pypi/v/forgecode-sdk)](https://pypi.org/project/forgecode-sdk/)
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Official Python SDK for the [ForgeCode](https://github.com/tailcallhq/forgecode) CLI. Provides a programmatic async-generator API for integrating AI agent capabilities into your Python applications, following the Claude Agent SDK pattern.
 
 ## Installation
 
 ```bash
+# Requires Python >= 3.11
 uv add forgecode-sdk
 ```
 
-Or from source:
+Or with pip:
 
 ```bash
-uv sync
+pip install forgecode-sdk
 ```
 
-## Quickstart
+**Requirements:**
+- Python >= 3.11
+- `forge` CLI binary installed
+
+## Quick Start
 
 ```python
 import asyncio
@@ -31,6 +40,79 @@ async def main():
             case "error": print(f"[error] {message.error}", file=__import__("sys").stderr)
 
 asyncio.run(main())
+```
+
+## Key Features
+
+- **Async generator streaming** — Real-time token-by-token response streaming with proper async iteration
+- **Type-safe schema validation** — Pydantic models for structured outputs and input validation
+- **Session management** — Continue and resume conversations with conversation IDs
+- **MCP server integration** — Import Model Context Protocol servers before agent runs
+- **Tool use monitoring** — Capture and handle agent tool invocations in real-time
+- **Abort support** — Cancel long-running queries with `asyncio.Event`
+- **Error handling** — Graceful error handling with detailed error types
+
+## API Reference
+
+### `query(prompt, options?)`
+
+Main function to send prompts to the ForgeCode agent.
+
+**Parameters:**
+- `prompt: str` — The prompt to send to the agent
+- `options?: QueryOptions` — Optional configuration
+
+**Returns:** `AsyncGenerator[AgentMessage]`
+
+### Message Types
+
+| Type | Description |
+|------|-------------|
+| `system` | Contains session_id and metadata |
+| `assistant` | Streamed response tokens |
+| `tool_use` | Agent invoking a tool |
+| `result` | Final execution result |
+| `error` | Error information |
+
+### QueryOptions
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `agent` | `str` | Agent name to use (default: "forge") |
+| `model` | `str` | Model to use |
+| `max_turns` | `int` | Maximum conversation turns |
+| `conversation_id` | `str` | Continue existing conversation |
+| `system_prompt` | `str` | Custom system prompt |
+| `env` | `dict[str, str]` | Environment variables |
+| `output_format` | `OutputFormat` | Structured output configuration |
+
+## Differences from TypeScript SDK
+
+| Aspect | TypeScript SDK | Python SDK |
+|--------|----------------|------------|
+| Schema validation | `z: z.object({...})` (Zod) | `model: MyModel` (Pydantic `BaseModel`) |
+| Abort mechanism | `abortController: new AbortController()` | `abort_event: asyncio.Event()` |
+| Option casing | camelCase (`conversationId`) | snake_case (`conversation_id`) |
+| `outputFormat` key | `outputFormat` | `output_format` |
+
+## Examples
+
+| Example | Description |
+|---------|-------------|
+| `examples/basic_query.py` | Send a prompt and collect the result |
+| `examples/json_output.py` | Structured JSON with Pydantic validation |
+| `examples/abort_query.py` | Cancel with `asyncio.Event` |
+| `examples/tool_use.py` | Capture tool use events |
+| `examples/advanced_options.py` | Model, env, systemPrompt, stderr callback |
+| `examples/session_management.py` | Continue and resume conversations |
+| `examples/error_handling.py` | Handle SDK errors gracefully |
+| `examples/mcp_servers.py` | Import MCP servers before a run |
+
+### Running Examples
+
+```bash
+uv sync --group dev
+uv run python examples/basic_query.py
 ```
 
 ## Development
@@ -52,24 +134,8 @@ uv run mypy src/forgecode
 uv lock
 ```
 
-## Examples
+## Related
 
-| Example | Description |
-|---|---|
-| `examples/basic_query.py` | Send a prompt and collect the result |
-| `examples/json_output.py` | Structured JSON with Pydantic validation |
-| `examples/abort_query.py` | Cancel with `asyncio.Event` |
-| `examples/tool_use.py` | Capture tool use events |
-| `examples/advanced_options.py` | Model, env, systemPrompt, stderr callback |
-| `examples/session_management.py` | Continue and resume conversations |
-| `examples/error_handling.py` | Handle SDK errors gracefully |
-| `examples/mcp_servers.py` | Import MCP servers before a run |
-
-## API differences from the TypeScript SDK
-
-| Aspect | TypeScript SDK | Python SDK |
-|---|---|---|
-| Schema validation | `z: z.object({...})` (Zod) | `model: MyModel` (Pydantic `BaseModel`) |
-| Abort mechanism | `abortController: new AbortController()` | `abort_event: asyncio.Event()` |
-| Option casing | camelCase (`conversationId`) | snake_case (`conversation_id`) |
-| `outputFormat` key | `outputFormat` | `output_format` |
+- [TypeScript SDK](https://github.com/ImBIOS/forgecode-sdk/tree/main/sdks/typescript) — TypeScript alternative
+- [ForgeCode CLI](https://github.com/tailcallhq/forgecode) — Official CLI documentation
+- [Main README](https://github.com/ImBIOS/forgecode-sdk) — Monorepo overview
