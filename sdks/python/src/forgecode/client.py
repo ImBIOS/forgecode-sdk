@@ -269,9 +269,9 @@ async def query(
     """
     opts = options or {}
 
-    # 20a: Resolve binary path
+    # 20a: Resolve binary path (options.forge_path takes priority)
     try:
-        forge_path: str = (opts.get("forge_path") or resolve_forge_path(config))  # type: ignore[assignment]
+        forge_path: str = opts.get("forge_path") or resolve_forge_path(config)  # type: ignore[assignment]
     except ForgeBinaryNotFoundError as e:
         yield ErrorMessage(type="error", error=str(e))
         return
@@ -308,12 +308,7 @@ async def query(
     # 20d: Import MCP servers
     mcp_servers = opts.get("mcp_servers")
     if mcp_servers and len(mcp_servers) > 0:
-        # Cast TypedDict to the internal dict[str, dict[str, Any]] the impl expects
-        await _import_mcp_servers(
-            forge_path,
-            mcp_servers,  # type: ignore[arg-type]
-            clean_env,
-        )
+        await _import_mcp_servers(forge_path, mcp_servers, clean_env)
 
     # 20e: Build args
     effective_prompt = opts.get("system_prompt", "")
@@ -333,11 +328,8 @@ async def query(
     if opts.get("cwd"):
         args.extend(["--directory", opts["cwd"]])
 
-    # Log unwired options at debug level
-    unwired = ["max_turns", "allowed_tools", "disallowed_tools", "tools", "title"]
-    for key in unwired:
-        if opts.get(key):
-            pass  # accepted silently for now
+    # Accepted but silently ignored: max_turns, allowed_tools, disallowed_tools, tools, title
+    _unwired = ["max_turns", "allowed_tools", "disallowed_tools", "tools", "title"]
 
     # 20f: Abort pre-check
     abort_event = opts.get("abort_event")
@@ -380,7 +372,7 @@ async def query(
     has_error = False
     error_message = ""
     system_yielded = False
-    result_yielded_during_loop = False
+    result_yielded_early = False  # True when a result message was yielded during stdout loop
 
     try:
         stdout_reader: asyncio.StreamReader = proc.stdout  # type: ignore[assignment]
@@ -392,12 +384,13 @@ async def query(
                 if not stripped:
                     continue
 
-                # Attempt JSON detection for direct JSON output (no status line prefix)
-                json_match: dict | None = None
-                stripped_lstrip = stripped.lstrip()
-                if stripped_lstrip.startswith("{"):
+                # Attempt direct JSON detection (no status line prefix).
+                # Handles forge output written as JSON objects on separate lines.
+                json_match: dict[str, Any] | None = None
+                lstripped = stripped.lstrip()
+                if lstripped.startswith("{"):
                     try:
-                        json_match = json.loads(stripped_lstrip)
+                        json_match = json.loads(lstripped)
                     except json.JSONDecodeError:
                         pass
 
@@ -429,12 +422,13 @@ async def query(
                             session_id=session_id,
                             usage=None,
                         )
-                        result_yielded_during_loop = True
+                        result_yielded_early = True
                     elif msg_type == "error":
                         has_error = True
                         error_message = json_match.get("error", "")
                         yield ErrorMessage(type="error", error=error_message)
                     else:
+                        # Unknown JSON type — treat as plain assistant text
                         assistant_text += ("\n" if assistant_text else "") + stripped
                         yield AssistantMessage(type="assistant", content=stripped)
                     continue
@@ -466,9 +460,11 @@ async def query(
                         )
                         continue
 
+                    # Unknown status line content — treat as assistant text
                     assistant_text += ("\n" if assistant_text else "") + stripped
                     yield AssistantMessage(type="assistant", content=stripped)
                 else:
+                    # Plain assistant text (no status line prefix)
                     assistant_text += ("\n" if assistant_text else "") + stripped
                     yield AssistantMessage(type="assistant", content=stripped)
 
@@ -478,22 +474,25 @@ async def query(
             abort_task.cancel()
         raise
 
-    # 20k: Handle remaining buffer
+    # 20k: Handle remaining buffer (incomplete last line)
     remaining = buffer.strip()
     if remaining:
         stripped = _strip_ansi(remaining)
         if stripped:
-            if stripped.lstrip().startswith("{"):
+            lstripped = stripped.lstrip()
+            # Treat a single JSON object in the buffer as the result
+            if lstripped.startswith("{"):
                 try:
-                    json_obj = json.loads(stripped.lstrip())
-                    if json_obj.get("type") == "result" and not result_yielded_during_loop:
+                    json_obj = json.loads(lstripped)
+                    if json_obj.get("type") == "result":
                         yield ResultMessage(
                             type="result",
                             result=json_obj.get("result", ""),
                             session_id=session_id,
                             usage=None,
                         )
-                        result_yielded_during_loop = True
+                        result_yielded_early = True  # suppress final result
+                        result_text = ""
                     else:
                         assistant_text += ("\n" if assistant_text else "") + stripped
                 except json.JSONDecodeError:
@@ -513,7 +512,7 @@ async def query(
     # 20m: Wait for process
     exit_code = await proc.wait()
 
-    # 20n: Inspect stderr for error lines
+    # 20n: Inspect stderr for error status lines
     stderr_text = "".join(stderr_lines)
     if not has_error and stderr_text.strip():
         for line in stderr_text.split("\n"):
@@ -538,16 +537,21 @@ async def query(
 
     # 20p: Yield synthetic SystemMessage if none emitted
     if not system_yielded:
-        yield SystemMessage(type="system", subtype="init", session_id=session_id or _generate_session_id())
+        yield SystemMessage(
+            type="system",
+            subtype="init",
+            session_id=session_id or _generate_session_id(),
+        )
 
     # Resolve result text
     result_text = assistant_text if assistant_text else "(no output)"
 
-    # 20q: Handle output_format
+    # 20q: Handle output_format (json_schema with Pydantic validation)
     output_format = opts.get("output_format")
     if output_format and output_format.get("type") == "json_schema":
         model_cls: type[BaseModel] | None = output_format.get("model")
         if model_cls is None:
+            # Deprecated `z` alias
             z_val = output_format.get("z")
             if z_val is not None:
                 import warnings
@@ -573,13 +577,11 @@ async def query(
                 )
                 return
             except (json.JSONDecodeError, ValidationError) as e:
-                has_error = True
-                error_message = f"JSON output failed schema validation: {e}"
-                yield ErrorMessage(type="error", error=error_message)
+                yield ErrorMessage(type="error", error=f"JSON output failed schema validation: {e}")
                 return
 
-    # 20r: Yield final result message — skip if forge already emitted one
-    if not result_yielded_during_loop:
+    # 20r: Yield final result message (skip if forge already emitted one inline)
+    if not result_yielded_early:
         yield ResultMessage(
             type="result",
             result=result_text,
@@ -591,6 +593,6 @@ async def query(
 __all__ = [
     "query",
     "resolve_forge_path",
-    "extract_json_from_text",
     "strip_ansi",
+    "extract_json_from_text",
 ]
