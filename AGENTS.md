@@ -1,101 +1,133 @@
 # ForgeCode SDK
 
-## Project Overview
+Multi-language SDK monorepo for the [ForgeCode](https://github.com/tailcallhq/forgecode) CLI (`forge` binary). Both SDKs wrap the `forge` CLI with a programmatic async-generator API that follows the Claude Agent SDK pattern.
 
-TypeScript SDK that wraps the ForgeCode CLI binary (`forge`) with a programmatic API. Follows the Claude Agent SDK pattern where `query()` returns an async iterator of typed messages.
+## Monorepo Layout
+
+```
+forgecode-sdk/
+├── README.md             ← Root overview
+├── AGENTS.md             ← Agent-facing guide (this file)
+├── .gitignore
+├── sdks/
+│   ├── typescript/        ← TypeScript / Bun SDK
+│   │   ├── src/
+│   │   ├── examples/
+│   │   ├── package.json
+│   │   └── tsconfig.json
+│   └── python/            ← Python / uv SDK
+│       ├── src/forgecode/
+│       ├── examples/
+│       ├── tests/
+│       ├── pyproject.toml
+│       └── uv.lock
+└── .relay/
+    └── plans/             ← Implementation plans (alsafa workspace)
+```
+
+## Language SDKs
+
+| Language | Location | Package name | Toolchain |
+|---|---|---|---|
+| TypeScript | `sdks/typescript/` | `@imbios/forgecode-sdk` | Bun + TypeScript |
+| Python | `sdks/python/` | `forgecode-sdk` | `uv` + Pydantic v2 |
 
 ## Architecture
 
-- **src/types.ts** — Type definitions: `ForgeMessage` union type, `QueryOptions`, `ForgeConfig`, error classes
-- **src/client.ts** — Core implementation: binary resolution, process spawning via `Bun.spawn`, output parsing, message streaming
-- **src/index.ts** — Public API barrel export
-- **examples/** — Runnable usage examples (see below)
+### TypeScript SDK
 
-## Key Design Decisions
+- **`sdks/typescript/src/types.ts`** — `ForgeMessage` union, `QueryOptions`, `ForgeConfig`, error classes
+- **`sdks/typescript/src/client.ts`** — Binary resolution, `Bun.spawn`, output parsing, message streaming
+- **`sdks/typescript/src/index.ts`** — Public API barrel export
 
-1. **Bun.spawn** for process management (not child_process)
-2. **Text parsing** — ForgeCode outputs markdown to stdout; there is no `--output-format json` flag. The SDK parses text output, including JSON extraction from markdown fences.
-3. **No permission flags** — `restricted = false` is the default in `.forge.toml`, so no `--dangerously-skip-permissions` is needed.
-4. **Binary resolution** — Searches `FORGE_PATH` env var, `config.forgePath`, system PATH, then `~/.local/bin/forge`.
-5. **OpenAI-compatible endpoints** — Configured via `OPENAI_URL` and `OPENAI_API_KEY` env vars passed to the forge process.
+### Python SDK
 
-## Development
+- **`sdks/python/src/forgecode/types.py`** — All message dataclasses, error classes, `QueryOptions`, `ForgeConfig`
+- **`sdks/python/src/forgecode/client.py`** — Binary resolution, `asyncio.create_subprocess_exec`, output parsing
+- **`sdks/python/src/forgecode/__init__.py`** — Public API barrel export
 
-```bash
-bun install
-bun run typecheck
-```
+### Cross-language Design Decisions
 
-## Claude Agent SDK Compatibility
+1. **Process management** — TypeScript uses `Bun.spawn`; Python uses `asyncio.create_subprocess_exec`
+2. **Text parsing** — ForgeCode outputs markdown to stdout; no `--output-format json` flag exists. The SDK parses text output, including JSON extraction from markdown fences.
+3. **No permission flags** — `restricted = false` is the default in `.forge.toml`, so no `--dangerously-skip-permissions` is needed
+4. **Binary resolution** — Same order in both: `FORGE_PATH` → `config.forgePath` → `~/.local/bin/forge` → system `PATH`
+5. **Structured output** — Both SDKs call `extract_json_from_text()` on the final result text (not a CLI flag) to find JSON in markdown fences
 
-The `query()` function signature mirrors the Claude Agent SDK:
+### QueryOptions Crosswalk
+
+| TypeScript | Python | Description |
+|---|---|---|
+| `agent` | `agent` | Agent ID |
+| `conversationId` | *(unavailable)* | Conversation ID to resume |
+| `sandbox` | *(unavailable)* | Git worktree sandbox name |
+| `cwd` | `cwd` | Working directory for forge |
+| `env` | `env` | Extra environment variables |
+| `outputFormat` | `output_format` | `OutputFormat` with `model: BaseModel` |
+| `reasoningEffort` | `reasoning_effort` | Reasoning effort level |
+| `mcpServers` | `mcp_servers` | MCP servers to import |
+| `allowedTools` | *(unavailable)* | Tools the agent may use |
+| `systemPrompt` | `system_prompt` | System prompt |
+| `abortController` | `abort_event: asyncio.Event` | Cancel the query |
+| `model` | `model` | Claude model name |
+| `maxTurns` | `max_turns` | Max conversation turns |
+| `disallowedTools` | *(unavailable)* | Disallowed tool names |
+| `tools` | *(unavailable)* | Available built-in tools |
+| `continue` | `continue_` | Continue most recent conversation |
+| `resume` | `resume` | Session ID to resume |
+| `stderr` | `stderr: Callable[[str], None]` | Callback invoked with stderr data |
+| `title` | `title` | Custom session title |
+
+### API Pattern
+
+Both SDKs use the same `async for` pattern:
 
 ```ts
-query({ prompt, options?: { agent?, conversationId?, sandbox?, cwd?, env?, outputFormat?, ... } })
-  -> AsyncGenerator<ForgeMessage>
+// TypeScript
+for await (const message of query({ prompt, options })) {
+  if (message.type === "result") console.log(message.result);
+}
 ```
 
-### QueryOptions
+```python
+# Python
+async for message in query("prompt", options={...}):
+    if message.type == "result":
+        print(message.result)
+```
 
-| Option            | Type                                  | Description                                                                                                                                                                                             |
-| ----------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent`           | `string`                              | Agent ID. Maps to `forge --agent <id>`.                                                                                                                                                                 |
-| `conversationId`  | `string`                              | Conversation ID to resume. Maps to `forge --conversation-id <id>`.                                                                                                                                      |
-| `sandbox`         | `string`                              | Git worktree sandbox name. Maps to `forge --sandbox <name>`.                                                                                                                                            |
-| `cwd`             | `string`                              | Working directory. Maps to `forge --directory <path>`.                                                                                                                                                  |
-| `env`             | `Record<string, string \| undefined>` | Extra environment variables for the forge process.                                                                                                                                                      |
-| `outputFormat`    | `OutputFormat`                        | Structured output request. When `type: 'json_schema'`, the SDK attempts to extract JSON from the final result text using `extractJsonFromText()`. If parsing fails, the raw text is returned unchanged. |
-| `reasoningEffort` | `ReasoningEffort`                     | Reasoning effort level (none/minimal/low/medium/high/xhigh/max).                                                                                                                                        |
-| `mcpServers`      | `Record<string, McpServerConfig>`     | MCP servers to import before the run via `forge mcp import`.                                                                                                                                            |
-| `allowedTools`    | `string[]`                            | Tools the agent is allowed to use.                                                                                                                                                                      |
-| `systemPrompt`    | `string`                              | System prompt prepended to the user prompt.                                                                                                                                                             |
-| `abortController` | `AbortController`                     | Cancel the query. Kills the forge process on abort.                                                                                                                                                     |
-| `model`           | `string`                              | Claude model to use. Maps to `FORGE_MODEL` env var. Overrides `config.model`.                                                                                                                           |
-| `maxTurns`        | `number`                              | Max conversation turns. Maps to `forge --max-turns <n>`.                                                                                                                                                |
-| `disallowedTools` | `string[]`                            | Disallowed tool names. Maps to `forge --disallowed-tools`.                                                                                                                                              |
-| `tools`           | `string[]`                            | Available built-in tools. Maps to `forge --tools`. Empty array disables all.                                                                                                                            |
-| `continue`        | `boolean`                             | Continue most recent conversation. Maps to `forge --continue`.                                                                                                                                          |
-| `resume`          | `string`                              | Session ID to resume. Maps to `forge --resume <id>`.                                                                                                                                                    |
-| `stderr`          | `(data: string) => void`              | Callback invoked with stderr data as it arrives.                                                                                                                                                        |
-| `title`           | `string`                              | Custom session title. Maps to `forge --title <title>`.                                                                                                                                                  |
+## Error Classes
 
-### outputFormat Behavior
-
-When `options.outputFormat` is set with `type: 'json_schema'`, the SDK does **not** pass it to the forge CLI (there is no `--output-format` flag). Instead, after the process completes, the SDK calls `extractJsonFromText()` on the final result. This attempts to find valid JSON in markdown fences or raw text. If extraction succeeds, the result's `result` field contains the JSON string. If it fails, the raw text is returned unchanged.
-
-### Error Classes
-
-- `ForgeBinaryNotFoundError` — forge binary not found on PATH
-- `ForgeProcessError` — forge exited with non-zero code
-- `ForgeOutputParseError` — output format parsing failed
-- `ForgeAbortError` — query was cancelled via AbortController
-
-### Message Types
-
-- `SystemMessage` — session initialization (type: "system", subtype: "init", session_id)
-- `AssistantMessage` — streaming text chunk (type: "assistant", content)
-- `ResultMessage` — final result (type: "result", result, session_id, usage?)
-- `ToolUseMessage` — tool call (type: "tool_use", name, arguments)
-- `ErrorMessage` — error (type: "error", error, exitCode?)
-
-## Examples
-
-All examples are in `examples/` and can be run with `bun run examples/<name>.ts`:
-
-| Example                 | What it demonstrates                                      |
-| ----------------------- | --------------------------------------------------------- |
-| `basic-query.ts`        | Send a prompt, iterate over messages, collect result      |
-| `json-output.ts`        | Request structured JSON with schema, parse the result     |
-| `abort-query.ts`        | Cancel a long-running query with AbortController          |
-| `tool-use.ts`           | Capture tool_use events during execution                  |
-| `advanced-options.ts`   | Model selection, maxTurns, env vars, systemPrompt, stderr |
-| `session-management.ts` | Continue and resume conversations by session ID           |
-| `error-handling.ts`     | Handle ForgeBinaryNotFoundError and other errors          |
-| `mcp-servers.ts`        | Import MCP servers before running a query                 |
+| TypeScript | Python | Description |
+|---|---|---|
+| `ForgeBinaryNotFoundError` | `ForgeBinaryNotFoundError` | forge binary not found on PATH |
+| `ForgeProcessError` | `ForgeProcessError` | forge exited with non-zero code |
+| `ForgeOutputParseError` | *(internal only)* | JSON extraction failed |
+| `ForgeAbortError` | *(yielded as error msg)* | Query was cancelled |
 
 ## Consumers
 
-This SDK is consumed by:
+Both SDK packages are consumed by the parent `alsafa` workspace:
 
-- `@alsafa/harness` — `packages/harness/src/session-runner.ts` (SessionRunner.run)
-- `@alsafa/server` — `apps/server/src/chat.ts` (chat handler)
+- **`@alsafa/harness`** — `packages/harness/src/session-runner.ts` (`SessionRunner.run`) imports `@imbios/forgecode-sdk`
+- **`@alsafa/server`** — `apps/server/src/chat.ts` (chat handler) imports `@imbios/forgecode-sdk`
+- **Python SDK consumers** — Not yet integrated; Python SDK is new
+
+## Development
+
+**TypeScript:**
+```bash
+cd sdks/typescript
+bun install
+bun run typecheck
+bun run examples/basic-query.ts
+```
+
+**Python:**
+```bash
+cd sdks/python
+uv sync --group dev
+uv run mypy src/forgecode --strict
+uv run pytest tests/
+uv run python examples/basic_query.py
+```

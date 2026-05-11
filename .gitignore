@@ -1,2 +1,47 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+.venv
+venv/
+ENV/
+
+# Type checking
+.mypy_cache/
+.pytest_cache/
+
+# TypeScript (at sdks/typescript/ root)
 node_modules/
-dist/
+# TypeScript SDK
+sdks/typescript/node_modules/
+sdks/typescript/dist/
+
+# Python SDK
+sdks/python/.venv/
+sdks/python/__pycache__/
+sdks/python/src/forgecode/__pycache__/
+sdks/python/src/forgecode/*.egg-info/
+sdks/python/.ruff_cache/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+sdks/python/uv.lock
