@@ -10,12 +10,36 @@ Official TypeScript SDK for the [ForgeCode](https://github.com/tailcallhq/forgec
 
 ## Installation
 
-```bash
-# Install the SDK
-pnpm add @imbios/forgecode-sdk
+### Option A: From npm (recommended)
 
-# Install forge CLI (if not already installed)
-curl -fsSL https://forgecode.dev/cli | sh
+```bash
+pnpm add @imbios/forgecode-sdk
+```
+
+### Option B: From GitHub (bleeding edge)
+
+```bash
+# Clone the repo and link locally
+git clone https://github.com/ImBIOS/forgecode-sdk.git
+cd forgecode-sdk/sdks/typescript
+pnpm install
+
+# Add as a local dependency in your project
+pnpm add -D github:ImBIOS/forgecode-sdk
+# Or link globally
+pnpm add -g github:ImBIOS/forgecode-sdk
+```
+
+> **Note:** pnpm does not support subdirectory installs from git URLs. Use the local install above or publish to npm.
+
+### Option C: From source
+
+```bash
+# Clone and link locally
+git clone https://github.com/ImBIOS/forgecode-sdk.git
+cd forgecode-sdk/sdks/typescript
+pnpm install
+bun run typecheck
 ```
 
 **Requirements:**

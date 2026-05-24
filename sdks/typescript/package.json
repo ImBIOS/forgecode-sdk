@@ -37,7 +37,7 @@
   "peerDependencies": {
     "bun": ">=1.0.0"
   },
-  "private": true,
+  "private": false,
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
