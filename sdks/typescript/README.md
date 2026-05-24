@@ -12,13 +12,14 @@ Official TypeScript SDK for the [ForgeCode](https://github.com/tailcallhq/forgec
 
 ```bash
 # Install the SDK
-bun add @imbios/forgecode-sdk
+pnpm add @imbios/forgecode-sdk
 
 # Install forge CLI (if not already installed)
 curl -fsSL https://forgecode.dev/cli | sh
 ```
 
 **Requirements:**
+
 - [Bun](https://bun.sh/) >= 1.0.0
 - `forge` CLI binary installed
 
@@ -65,6 +66,7 @@ for await (const message of query({
 Main function to send prompts to the ForgeCode agent.
 
 **Parameters:**
+
 - `prompt: string` — The prompt to send to the agent
 - `options?: QueryOptions` — Optional configuration
 

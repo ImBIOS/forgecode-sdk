@@ -24,16 +24,16 @@
 
 | Language | Package | Install |
 |----------|---------|---------|
-| **TypeScript** | `@imbios/forgecode-sdk` | `bun add @imbios/forgecode-sdk` |
+| **TypeScript** | `@imbios/forgecode-sdk` | `pnpm add @imbios/forgecode-sdk` |
 | **Python** | `forgecode-sdk` | `uv add forgecode-sdk` |
 
 ## Installation
 
-### TypeScript SDK (Bun)
+### TypeScript SDK
 
 ```bash
 # Install the SDK
-bun add @imbios/forgecode-sdk
+pnpm add @imbios/forgecode-sdk
 
 # Install forge CLI (if not already installed)
 curl -fsSL https://forgecode.dev/cli | sh
@@ -162,7 +162,7 @@ The SDK locates the `forge` CLI using this resolution order:
 
 ```bash
 cd sdks/typescript
-bun install
+pnpm install
 bun run typecheck
 bun run examples/basic-query.ts
 ```
