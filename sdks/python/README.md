@@ -10,27 +10,14 @@ Official Python SDK for the [ForgeCode](https://github.com/tailcallhq/forgecode)
 
 ## Installation
 
-### Option A: From PyPI (recommended)
-
-```bash
-# Requires Python >= 3.11
-uv add forgecode-sdk
-```
-
-Or with pip:
-
-```bash
-pip install forgecode-sdk
-```
-
-### Option B: From GitHub with uv (bleeding edge)
+### From GitHub (recommended)
 
 ```bash
 # Install from main branch using uv
 uv pip install git+https://github.com/ImBIOS/forgecode-sdk.git#subdirectory=sdks/python
 ```
 
-### Option C: From source
+### From source
 
 ```bash
 # Clone and install from source

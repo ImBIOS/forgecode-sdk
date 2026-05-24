@@ -10,13 +10,13 @@ Official TypeScript SDK for the [ForgeCode](https://github.com/tailcallhq/forgec
 
 ## Installation
 
-### Option A: From npm (recommended)
+### From npm
 
 ```bash
 pnpm add @imbios/forgecode-sdk
 ```
 
-### Option B: From GitHub (bleeding edge)
+### From GitHub (bleeding edge)
 
 ```bash
 # Clone the repo and link locally
