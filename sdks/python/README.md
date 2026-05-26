@@ -2,19 +2,24 @@
 
 > Integrate AI agent capabilities into your Python applications with async-generator streaming, Pydantic validation, and MCP server support.
 
-[![PyPI version](https://img.shields.io/pypi/v/forgecode-sdk)](https://pypi.org/project/forgecode-sdk/)
 [![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Official Python SDK for the [ForgeCode](https://github.com/tailcallhq/forgecode) CLI. Provides a programmatic async-generator API for integrating AI agent capabilities into your Python applications, following the Claude Agent SDK pattern.
 
 ## Installation
+## Installation
+
+> **Note:** This SDK is installed directly from GitHub. PyPI packages are not yet published.
 
 ### From GitHub (recommended)
 
 ```bash
-# Install from main branch using uv
-uv pip install git+https://github.com/ImBIOS/forgecode-sdk.git#subdirectory=sdks/python
+# Install from GitHub using uv (recommended)
+uv add git+https://github.com/ImBIOS/forgecode-sdk.git#subdirectory=sdks/python
+
+# Or with pip
+pip install git+https://github.com/ImBIOS/forgecode-sdk.git#subdirectory=sdks/python
 ```
 
 ### From source
@@ -34,7 +39,6 @@ pip install -e .
 **Requirements:**
 - Python >= 3.11
 - `forge` CLI binary installed
-
 ## Quick Start
 
 ```python
@@ -69,6 +73,7 @@ asyncio.run(main())
 Main function to send prompts to the ForgeCode agent.
 
 **Parameters:**
+
 - `prompt: str` — The prompt to send to the agent
 - `options?: QueryOptions` — Optional configuration
 

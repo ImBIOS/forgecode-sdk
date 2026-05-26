@@ -5,8 +5,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![npm version](https://img.shields.io/npm/v/@imbios/forgecode-sdk)](https://www.npmjs.com/package/@imbios/forgecode-sdk)
-[![PyPI version](https://img.shields.io/pypi/v/forgecode-sdk)](https://pypi.org/project/forgecode-sdk/)
 
 **ForgeCode SDK** provides official language-specific libraries for integrating with the [ForgeCode](https://github.com/tailcallhq/forgecode) CLI (`forge` binary) in your applications. Built for developers who want programmatic access to AI agent capabilities using async-generator patterns that follow the Claude Agent SDK specification.
 
@@ -24,28 +22,35 @@
 
 | Language | Package | Install |
 |----------|---------|---------|
-| **TypeScript** | `@imbios/forgecode-sdk` | `pnpm add @imbios/forgecode-sdk` |
-| **Python** | `forgecode-sdk` | `uv add forgecode-sdk` |
+| **TypeScript** | `@imbios/forgecode-sdk` | `pnpm add github:ImBIOS/forgecode-sdk#sdks/typescript` |
+| **Python** | `forgecode-sdk` | `uv add git+https://github.com/ImBIOS/forgecode-sdk#subdirectory=sdks/python` |
 
 ## Installation
+
+> **Note:** Both SDKs are installed directly from GitHub. PyPI and npm packages are not yet published.
 
 ### TypeScript SDK
 
 ```bash
-# Install the SDK
-pnpm add @imbios/forgecode-sdk
+# Install from GitHub (Bun required)
+pnpm add github:ImBIOS/forgecode-sdk#sdks/typescript
 
-# Install forge CLI (if not already installed)
-curl -fsSL https://forgecode.dev/cli | sh
+# Or with npm
+npm install github:ImBIOS/forgecode-sdk#sdks/typescript
 ```
+
+> **Note:** `pnpm` requires a special syntax for subdirectory installs. The `#sdks/typescript` fragment is required.
 
 **Requires:** Bun >= 1.0.0
 
 ### Python SDK
 
 ```bash
-# Requires Python >= 3.11
-uv add forgecode-sdk
+# Install from GitHub using uv (recommended)
+uv add git+https://github.com/ImBIOS/forgecode-sdk#subdirectory=sdks/python
+
+# Or with pip
+pip install git+https://github.com/ImBIOS/forgecode-sdk.git#subdirectory=sdks/python
 ```
 
 **Requires:** Python >= 3.11

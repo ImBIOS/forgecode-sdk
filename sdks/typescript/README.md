@@ -2,7 +2,6 @@
 
 > Integrate AI agent capabilities into your TypeScript/Bun applications with async-generator streaming, type-safe validation, and MCP server support.
 
-[![npm version](https://img.shields.io/npm/v/@imbios/forgecode-sdk)](https://www.npmjs.com/package/@imbios/forgecode-sdk)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -10,36 +9,29 @@ Official TypeScript SDK for the [ForgeCode](https://github.com/tailcallhq/forgec
 
 ## Installation
 
-### From npm
+## Installation
+
+> **Note:** This SDK is installed directly from GitHub. npm packages are not yet published.
+
+### From GitHub (recommended)
 
 ```bash
-pnpm add @imbios/forgecode-sdk
+# Install from GitHub using pnpm
+pnpm add github:ImBIOS/forgecode-sdk#sdks/typescript
+
+# Or with npm
+npm install github:ImBIOS/forgecode-sdk#sdks/typescript
 ```
 
-### From GitHub (bleeding edge)
+> **Note:** The `#sdks/typescript` fragment is required for subdirectory installs. This is a pnpm/npm limitation when the package lives in a monorepo subdirectory.
+
+### From source
 
 ```bash
-# Clone the repo and link locally
+# Clone and install from source
 git clone https://github.com/ImBIOS/forgecode-sdk.git
 cd forgecode-sdk/sdks/typescript
 pnpm install
-
-# Add as a local dependency in your project
-pnpm add -D github:ImBIOS/forgecode-sdk
-# Or link globally
-pnpm add -g github:ImBIOS/forgecode-sdk
-```
-
-> **Note:** pnpm does not support subdirectory installs from git URLs. Use the local install above or publish to npm.
-
-### Option C: From source
-
-```bash
-# Clone and link locally
-git clone https://github.com/ImBIOS/forgecode-sdk.git
-cd forgecode-sdk/sdks/typescript
-pnpm install
-bun run typecheck
 ```
 
 **Requirements:**
