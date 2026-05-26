@@ -32,14 +32,14 @@
 ### TypeScript SDK
 
 ```bash
-# Install from GitHub (Bun required)
+# Install from GitHub
 pnpm add github:ImBIOS/forgecode-sdk#sdks/typescript
 
 # Or with npm
 npm install github:ImBIOS/forgecode-sdk#sdks/typescript
 ```
 
-> **Note:** `pnpm` requires a special syntax for subdirectory installs. The `#sdks/typescript` fragment is required.
+> **Note:** requires a special syntax for subdirectory installs. The `#sdks/typescript` fragment is required.
 
 **Requires:** Bun >= 1.0.0
 
